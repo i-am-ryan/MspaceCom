@@ -1,5 +1,3 @@
-// src/pages/SignIn.tsx - CLIENT (NO persistent verification message)
-
 import { useState, useEffect } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { ArrowLeft, Mail, Lock, Eye, EyeOff, AlertCircle } from "lucide-react";
@@ -20,13 +18,12 @@ const SignIn = () => {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [verifying, setVerifying] = useState(false);
   
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
-  // Only show verification message if coming from signup
   const showVerificationNotice = location.state?.fromSignup === true;
-
   const images = [plumberImg, electricianImg, painterImg, handymanImg];
 
   useEffect(() => {
@@ -36,12 +33,104 @@ const SignIn = () => {
     return () => clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    const verifyEmailFromUrl = async () => {
+      const params = new URLSearchParams(window.location.search);
+      const token = params.get('token');
+      const pwd = params.get('pwd');
+      
+      if (token) {
+        setVerifying(true);
+        
+        try {
+          const { data: verification, error } = await supabase
+            .from('email_verifications')
+            .select('*')
+            .eq('token', token)
+            .single();
+
+          if (!error && verification) {
+            if (verification.verified) {
+              toast({
+                title: "Already verified",
+                description: "Your email is already verified. Please sign in.",
+              });
+              setVerifying(false);
+              return;
+            }
+
+            const expiresAt = new Date(verification.expires_at);
+            if (expiresAt < new Date()) {
+              toast({
+                variant: "destructive",
+                title: "Link expired",
+                description: "This verification link has expired. Please sign up again.",
+              });
+              setVerifying(false);
+              return;
+            }
+
+            await supabase
+              .from('email_verifications')
+              .update({ 
+                verified: true, 
+                verified_at: new Date().toISOString() 
+              })
+              .eq('token', token);
+
+            const { data: profile } = await supabase
+              .from('profiles')
+              .select('email')
+              .eq('clerk_user_id', verification.user_id)
+              .single();
+
+            if (profile?.email && pwd) {
+              const decodedPwd = decodeURIComponent(pwd);
+              const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+                email: profile.email,
+                password: decodedPwd,
+              });
+
+              if (!signInError && signInData.session) {
+                toast({
+                  title: "Email verified!",
+                  description: "Welcome to Mspaces!",
+                });
+                navigate("/home");
+                return;
+              }
+            }
+
+            toast({
+              title: "Email verified!",
+              description: "Please sign in below.",
+            });
+            
+            if (profile?.email) {
+              setEmail(profile.email);
+            }
+          }
+        } catch (err) {
+          console.error("Verification error:", err);
+          toast({
+            variant: "destructive",
+            title: "Verification failed",
+            description: "Failed to verify email. Please try again.",
+          });
+        } finally {
+          setVerifying(false);
+        }
+      }
+    };
+
+    verifyEmailFromUrl();
+  }, []);
+
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
     try {
-      // Attempt to sign in
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -49,7 +138,6 @@ const SignIn = () => {
 
       if (error) throw error;
 
-      // Check if email is verified
       if (data.user) {
         const { data: verification } = await supabase
           .from('email_verifications')
@@ -57,7 +145,6 @@ const SignIn = () => {
           .eq('user_id', data.user.id)
           .single();
 
-        // If not verified, block signin
         if (!verification || !verification.verified) {
           await supabase.auth.signOut();
           
@@ -70,7 +157,6 @@ const SignIn = () => {
           return;
         }
 
-        // Email verified, allow signin
         toast({
           title: "Welcome back!",
           description: "You've successfully signed in.",
@@ -90,9 +176,20 @@ const SignIn = () => {
     }
   };
 
+  if (verifying) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center p-6">
+        <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 text-center">
+          <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <h2 className="text-2xl font-bold mb-2">Verifying your email...</h2>
+          <p className="text-muted-foreground">Please wait a moment.</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen flex flex-col lg:flex-row">
-      {/* Left side - Image carousel */}
       <div className="hidden lg:flex lg:w-1/2 bg-primary relative overflow-hidden">
         {images.map((img, idx) => (
           <div
@@ -120,7 +217,6 @@ const SignIn = () => {
         </div>
       </div>
 
-      {/* Right side - Sign in form */}
       <div className="w-full lg:w-1/2 bg-background overflow-y-auto">
         <div className="sticky top-0 bg-background border-b border-border p-4 flex items-center z-10">
           <Link to="/welcome" className="p-2 -ml-2 hover:bg-muted rounded-full">
@@ -138,7 +234,6 @@ const SignIn = () => {
               </p>
             </div>
 
-            {/* Email verification notice - ONLY if coming from signup */}
             {showVerificationNotice && (
               <div className="bg-primary/5 border border-primary/20 rounded-lg p-4 mb-6 flex items-start gap-3">
                 <AlertCircle className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />

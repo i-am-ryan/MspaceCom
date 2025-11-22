@@ -1,5 +1,3 @@
-// src/lib/emailService.ts - ALWAYS uses production URL
-
 import emailjs from '@emailjs/browser';
 
 const SERVICE_ID = import.meta.env.VITE_EMAILJS_SERVICE_ID;
@@ -34,8 +32,7 @@ export const sendWelcomeEmail = async (params: WelcomeEmailParams) => {
   }
 };
 
-// ALWAYS uses production URL - never localhost
 export const generateConfirmationUrl = (token: string) => {
   const baseUrl = 'https://mspace-com.vercel.app';
-  return `${baseUrl}/confirm-email?token=${token}`;
+  return `${baseUrl}/signin?token=${token}`;
 };
