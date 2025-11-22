@@ -1,4 +1,4 @@
-// src/lib/emailService.ts - Uses production URL automatically
+// src/lib/emailService.ts - ALWAYS uses production URL
 
 import emailjs from '@emailjs/browser';
 
@@ -34,15 +34,8 @@ export const sendWelcomeEmail = async (params: WelcomeEmailParams) => {
   }
 };
 
-// Generate confirmation URL - automatically uses production URL
+// ALWAYS uses production URL - never localhost
 export const generateConfirmationUrl = (token: string) => {
-  // Check if we're on localhost
-  const isLocalhost = window.location.hostname === 'localhost';
-  
-  // Use production URL by default, localhost only for development
-  const baseUrl = isLocalhost
-    ? 'http://localhost:8082'
-    : 'https://mspace-com.vercel.app';
-  
+  const baseUrl = 'https://mspace-com.vercel.app';
   return `${baseUrl}/confirm-email?token=${token}`;
 };
