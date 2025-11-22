@@ -1,4 +1,4 @@
-// src/pages/SignUp.tsx - CLIENT with proper navigation
+// SUPABASE BUILT-IN EMAIL CONFIRMATION - Works immediately!
 
 import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
@@ -8,7 +8,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/lib/supabase";
-import { sendWelcomeEmail, generateConfirmationUrl } from "@/lib/emailService";
 import plumberImg from "@/assets/signup-plumber.jpg";
 import electricianImg from "@/assets/signup-electrician.jpg";
 import painterImg from "@/assets/signup-painter.jpg";
@@ -20,13 +19,6 @@ const COMMON_PASSWORDS = [
   'ashley', 'bailey', 'passw0rd', 'shadow', '123123', '654321', 'superman',
   'qazwsx', 'michael', 'football'
 ];
-
-// Generate random verification token
-const generateToken = () => {
-  return Array.from(crypto.getRandomValues(new Uint8Array(32)))
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('');
-};
 
 const SignUp = () => {
   const navigate = useNavigate();
@@ -43,7 +35,6 @@ const SignUp = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
-
   const [address, setAddress] = useState("");
   const [city, setCity] = useState("");
   const [province, setProvince] = useState("");
@@ -170,7 +161,7 @@ const SignUp = () => {
     setLoading(true);
 
     try {
-      // Sign up WITHOUT email confirmation required
+      // Use Supabase's built-in email confirmation
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email,
         password,
@@ -179,41 +170,22 @@ const SignUp = () => {
             full_name: fullName,
             user_type: 'customer',
           },
-          emailRedirectTo: undefined,
+          emailRedirectTo: 'https://mspace-com.vercel.app/confirm-email',
         },
       });
 
       if (authError) throw authError;
 
       if (authData.user) {
-        // Generate verification token
-        const verificationToken = generateToken();
-
-        // Create verification record
-        await supabase
-          .from('email_verifications')
-          .insert({
-            user_id: authData.user.id,
-            token: verificationToken,
-            verified: false,
-          });
-
         // Create profile
-        const { error: profileError } = await supabase
-          .from('profiles')
-          .insert({
-            clerk_user_id: authData.user.id,
-            email: email,
-            full_name: fullName,
-            phone_number: phoneNumber,
-            user_type: 'customer',
-          });
+        await supabase.from('profiles').insert({
+          clerk_user_id: authData.user.id,
+          email: email,
+          full_name: fullName,
+          phone_number: phoneNumber,
+          user_type: 'customer',
+        });
 
-        if (profileError) {
-          console.error("Profile creation error:", profileError);
-        }
-
-        // Get profile and create customer profile
         const { data: profile } = await supabase
           .from('profiles')
           .select('id')
@@ -221,32 +193,18 @@ const SignUp = () => {
           .single();
 
         if (profile) {
-          await supabase
-            .from('customer_profiles')
-            .insert({
-              profile_id: profile.id,
-              address: address.trim() || null,
-              formatted_address: address.trim() || null,
-              city: city.trim() || null,
-              province: province.trim() || null,
-              postal_code: postalCode.trim() || null,
-            });
+          await supabase.from('customer_profiles').insert({
+            profile_id: profile.id,
+            address: address.trim() || null,
+            formatted_address: address.trim() || null,
+            city: city.trim() || null,
+            province: province.trim() || null,
+            postal_code: postalCode.trim() || null,
+          });
         }
 
-        // Build confirmation URL
-     const confirmationUrl = `${generateConfirmationUrl(verificationToken)}&pwd=${encodeURIComponent(password)}`;
-        // Send custom email via EmailJS
-        await sendWelcomeEmail({
-          user_name: fullName,
-          user_email: email,
-          confirmation_url: confirmationUrl,
-        });
-
-        // Store for success banner
         setUserEmail(email);
         setUserName(fullName);
-        
-        // Show success banner
         setShowSuccessBanner(true);
       }
     } catch (error: any) {
@@ -267,7 +225,6 @@ const SignUp = () => {
     return "text-green-500";
   };
 
-  // Success Banner
   if (showSuccessBanner) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center p-6">
@@ -294,7 +251,7 @@ const SignUp = () => {
               {userEmail}
             </p>
             <p className="text-sm text-muted-foreground mt-4">
-              Please click the confirmation button in the email to activate your account.
+              Please click the confirmation link in the email to activate your account.
             </p>
           </div>
 
@@ -304,12 +261,7 @@ const SignUp = () => {
             </p>
             
             <Button
-              onClick={() => {
-                navigate("/signin", { 
-                  replace: true,
-                  state: { fromSignup: true }
-                });
-              }}
+              onClick={() => navigate("/signin", { replace: true, state: { fromSignup: true } })}
               className="w-full h-12 bg-primary hover:bg-primary/90"
             >
               Go to Sign In
@@ -322,7 +274,6 @@ const SignUp = () => {
 
   return (
     <div className="min-h-screen flex flex-col lg:flex-row">
-      {/* Left side - Image carousel */}
       <div className="hidden lg:flex lg:w-1/2 bg-primary relative overflow-hidden">
         {images.map((img, idx) => (
           <div
@@ -331,11 +282,7 @@ const SignUp = () => {
               idx === currentImageIndex ? "opacity-100" : "opacity-0"
             }`}
           >
-            <img
-              src={img}
-              alt="Service provider at work"
-              className="w-full h-full object-cover"
-            />
+            <img src={img} alt="Service provider" className="w-full h-full object-cover" />
             <div className="absolute inset-0 bg-primary/60" />
           </div>
         ))}
@@ -350,14 +297,10 @@ const SignUp = () => {
         </div>
       </div>
 
-      {/* Right side - Sign up form */}
       <div className="w-full lg:w-1/2 bg-background overflow-y-auto">
         <div className="sticky top-0 bg-background border-b border-border p-4 flex items-center z-10">
           {step === 2 ? (
-            <button 
-              onClick={() => setStep(1)}
-              className="p-2 -ml-2 hover:bg-muted rounded-full"
-            >
+            <button onClick={() => setStep(1)} className="p-2 -ml-2 hover:bg-muted rounded-full">
               <ArrowLeft className="w-6 h-6" />
             </button>
           ) : (
@@ -377,13 +320,10 @@ const SignUp = () => {
                 {step === 1 ? "Create your account" : "Where are you located?"}
               </h2>
               <p className="text-muted-foreground">
-                {step === 1 
-                  ? "Get started with Mspaces today" 
-                  : "Help us find the best service providers near you"}
+                {step === 1 ? "Get started with Mspaces today" : "Help us find the best service providers near you"}
               </p>
             </div>
 
-            {/* Step 1: Account Information */}
             {step === 1 && (
               <form onSubmit={handleNextStep} className="space-y-4">
                 <div className="space-y-2">
@@ -475,16 +415,12 @@ const SignUp = () => {
                   </p>
                 </div>
 
-                <Button
-                  type="submit"
-                  className="w-full h-12 bg-primary hover:bg-primary/90"
-                >
+                <Button type="submit" className="w-full h-12 bg-primary hover:bg-primary/90">
                   Continue
                 </Button>
               </form>
             )}
 
-            {/* Step 2: Location Information */}
             {step === 2 && (
               <form onSubmit={handleSignUp} className="space-y-4">
                 <div className="space-y-2">
