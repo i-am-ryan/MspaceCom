@@ -1,29 +1,50 @@
 // LOCATION: /src/pages/AuthCallback.tsx
-// SIMPLE AND WORKING VERSION
+// BULLETPROOF VERSION - Handles all Supabase auth callback formats
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 
 const AuthCallback = () => {
   const navigate = useNavigate();
+  const [message, setMessage] = useState("Confirming your email...");
 
   useEffect(() => {
-    // Supabase automatically handles the hash tokens when we call getSession
-    // We just need to wait a moment for it to process
     const handleCallback = async () => {
-      // Wait for Supabase to process the hash
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      // Check if user is now authenticated
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      if (session) {
-        // User is authenticated, go to home
-        navigate('/home', { replace: true });
-      } else {
-        // Something went wrong, go to signin
-        navigate('/signin', { replace: true });
+      try {
+        console.log("AuthCallback started");
+        console.log("Full URL:", window.location.href);
+        console.log("Hash:", window.location.hash);
+        console.log("Search:", window.location.search);
+
+        // Give Supabase a moment to automatically process the hash
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // Now check if we have a session
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        console.log("Session check:", { hasSession: !!session, error });
+
+        if (error) {
+          console.error("Session error:", error);
+          setMessage("Something went wrong. Redirecting to sign in...");
+          setTimeout(() => navigate('/signin', { replace: true }), 2000);
+          return;
+        }
+
+        if (session) {
+          console.log("✅ User authenticated:", session.user.email);
+          setMessage("Success! Redirecting to home...");
+          setTimeout(() => navigate('/home', { replace: true }), 1000);
+        } else {
+          console.log("❌ No session found");
+          setMessage("Confirmation link may have expired. Redirecting to sign in...");
+          setTimeout(() => navigate('/signin', { replace: true }), 2000);
+        }
+      } catch (error) {
+        console.error("Unexpected error:", error);
+        setMessage("An error occurred. Redirecting to sign in...");
+        setTimeout(() => navigate('/signin', { replace: true }), 2000);
       }
     };
 
@@ -36,22 +57,39 @@ const AuthCallback = () => {
       display: 'flex', 
       alignItems: 'center', 
       justifyContent: 'center',
-      background: 'linear-gradient(to bottom right, #5EBFB3, #4AA89D)',
-      color: 'white',
-      fontFamily: 'system-ui, -apple-system, sans-serif'
+      background: 'linear-gradient(135deg, #5EBFB3 0%, #4AA89D 100%)',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
     }}>
-      <div style={{ textAlign: 'center' }}>
+      <div style={{ 
+        textAlign: 'center',
+        backgroundColor: 'white',
+        padding: '48px 32px',
+        borderRadius: '16px',
+        boxShadow: '0 10px 40px rgba(0,0,0,0.1)',
+        maxWidth: '400px',
+        width: '90%'
+      }}>
         <div style={{ 
           fontSize: '48px', 
-          marginBottom: '16px',
-          animation: 'spin 1s linear infinite' 
+          marginBottom: '24px',
+          animation: 'spin 2s linear infinite' 
         }}>
           ⚡
         </div>
-        <h2 style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '8px' }}>
-          Confirming your email...
+        <h2 style={{ 
+          fontSize: '24px', 
+          fontWeight: '600', 
+          marginBottom: '12px',
+          color: '#1a1a1a'
+        }}>
+          {message}
         </h2>
-        <p style={{ opacity: 0.9 }}>Please wait a moment</p>
+        <p style={{ 
+          color: '#666',
+          fontSize: '14px'
+        }}>
+          Please wait a moment
+        </p>
       </div>
       <style>{`
         @keyframes spin {
