@@ -1,109 +1,64 @@
 // LOCATION: /src/pages/AuthCallback.tsx
-// This page handles the email confirmation callback from Supabase
+// SIMPLE AND WORKING VERSION
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
-import { Loader2, CheckCircle, XCircle } from "lucide-react";
 
 const AuthCallback = () => {
   const navigate = useNavigate();
-  const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
-  const [message, setMessage] = useState('Confirming your email...');
 
   useEffect(() => {
-    const handleAuthCallback = async () => {
-      try {
-        // Supabase automatically handles the token exchange when the user lands on this page
-        // We just need to check if the user is now authenticated
-        const { data: { session }, error } = await supabase.auth.getSession();
-
-        if (error) {
-          console.error('Auth callback error:', error);
-          setStatus('error');
-          setMessage(error.message || 'Failed to confirm email. The link may have expired.');
-          
-          // Redirect to sign in after 3 seconds
-          setTimeout(() => {
-            navigate('/signin');
-          }, 3000);
-          return;
-        }
-
-        if (session && session.user) {
-          setStatus('success');
-          setMessage('Email confirmed successfully! Redirecting to home...');
-          
-          // Redirect to home after 1.5 seconds
-          setTimeout(() => {
-            navigate('/home');
-          }, 1500);
-        } else {
-          // No session found, might be an expired link
-          setStatus('error');
-          setMessage('Email confirmation failed. The link may have expired. Please try signing up again.');
-          
-          setTimeout(() => {
-            navigate('/signin');
-          }, 3000);
-        }
-      } catch (error: any) {
-        console.error('Unexpected error:', error);
-        setStatus('error');
-        setMessage('An unexpected error occurred. Please try again.');
-        
-        setTimeout(() => {
-          navigate('/signin');
-        }, 3000);
+    // Supabase automatically handles the hash tokens when we call getSession
+    // We just need to wait a moment for it to process
+    const handleCallback = async () => {
+      // Wait for Supabase to process the hash
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Check if user is now authenticated
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (session) {
+        // User is authenticated, go to home
+        navigate('/home', { replace: true });
+      } else {
+        // Something went wrong, go to signin
+        navigate('/signin', { replace: true });
       }
     };
 
-    handleAuthCallback();
+    handleCallback();
   }, [navigate]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/10 via-background to-secondary/10 p-4">
-      <div className="w-full max-w-md bg-card rounded-2xl shadow-xl p-8 text-center">
-        {status === 'loading' && (
-          <>
-            <div className="flex justify-center mb-6">
-              <Loader2 className="w-16 h-16 text-primary animate-spin" />
-            </div>
-            <h2 className="text-2xl font-bold mb-2">Confirming Your Email</h2>
-            <p className="text-muted-foreground">{message}</p>
-          </>
-        )}
-
-        {status === 'success' && (
-          <>
-            <div className="flex justify-center mb-6">
-              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center">
-                <CheckCircle className="w-10 h-10 text-green-600" />
-              </div>
-            </div>
-            <h2 className="text-2xl font-bold mb-2 text-green-600">Email Confirmed! 🎉</h2>
-            <p className="text-muted-foreground">{message}</p>
-          </>
-        )}
-
-        {status === 'error' && (
-          <>
-            <div className="flex justify-center mb-6">
-              <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center">
-                <XCircle className="w-10 h-10 text-red-600" />
-              </div>
-            </div>
-            <h2 className="text-2xl font-bold mb-2 text-red-600">Confirmation Failed</h2>
-            <p className="text-muted-foreground mb-4">{message}</p>
-            <button
-              onClick={() => navigate('/signin')}
-              className="text-primary hover:underline font-medium"
-            >
-              Go to Sign In
-            </button>
-          </>
-        )}
+    <div style={{ 
+      minHeight: '100vh', 
+      display: 'flex', 
+      alignItems: 'center', 
+      justifyContent: 'center',
+      background: 'linear-gradient(to bottom right, #5EBFB3, #4AA89D)',
+      color: 'white',
+      fontFamily: 'system-ui, -apple-system, sans-serif'
+    }}>
+      <div style={{ textAlign: 'center' }}>
+        <div style={{ 
+          fontSize: '48px', 
+          marginBottom: '16px',
+          animation: 'spin 1s linear infinite' 
+        }}>
+          ⚡
+        </div>
+        <h2 style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '8px' }}>
+          Confirming your email...
+        </h2>
+        <p style={{ opacity: 0.9 }}>Please wait a moment</p>
       </div>
+      <style>{`
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
     </div>
   );
 };

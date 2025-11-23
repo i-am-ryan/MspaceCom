@@ -37,6 +37,7 @@ const App = () => (
           <Route path="/signup/*" element={<SignUp />} />
           <Route path="/signin/*" element={<SignIn />} />
           <Route path="/confirm-email" element={<ConfirmEmail />} />
+          {/* AUTH CALLBACK ROUTE - CRITICAL! */}
           <Route path="/auth/callback" element={<AuthCallback />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/verify-phone" element={<VerifyPhone />} />
