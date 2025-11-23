@@ -1,3 +1,5 @@
+// LOCATION: /src/App.tsx
+
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -7,6 +9,7 @@ import Welcome from "./pages/Welcome";
 import SignUp from "./pages/SignUp";
 import SignIn from "./pages/SignIn";
 import ConfirmEmail from "./pages/ConfirmEmail";
+import AuthCallback from "./pages/AuthCallback";
 import ForgotPassword from "./pages/ForgotPassword";
 import VerifyPhone from "./pages/VerifyPhone";
 import Splash from "./pages/Splash";
@@ -34,6 +37,7 @@ const App = () => (
           <Route path="/signup/*" element={<SignUp />} />
           <Route path="/signin/*" element={<SignIn />} />
           <Route path="/confirm-email" element={<ConfirmEmail />} />
+          <Route path="/auth/callback" element={<AuthCallback />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/verify-phone" element={<VerifyPhone />} />
           <Route path="/splash" element={<Splash />} />

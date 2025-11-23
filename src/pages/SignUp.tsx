@@ -1,3 +1,4 @@
+// LOCATION: /src/pages/SignUp.tsx
 // SUPABASE BUILT-IN EMAIL CONFIRMATION - Works immediately!
 
 import { useState, useEffect } from "react";
@@ -170,7 +171,7 @@ const SignUp = () => {
             full_name: fullName,
             user_type: 'customer',
           },
-          emailRedirectTo: 'https://mspace-com.vercel.app/confirm-email',
+          emailRedirectTo: 'https://mspace-com.vercel.app/auth/callback',
         },
       });
 
@@ -225,47 +226,70 @@ const SignUp = () => {
     return "text-green-500";
   };
 
+  const getPasswordStrengthWidth = () => {
+    if (passwordStrength.isCommon) return "0%";
+    const width = Math.min((passwordStrength.score / 6) * 100, 100);
+    return `${width}%`;
+  };
+
   if (showSuccessBanner) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center p-6">
-        <div className="max-w-lg w-full bg-white rounded-2xl shadow-xl p-8 text-center">
-          <div className="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-6">
-            <PartyPopper className="w-10 h-10 text-primary" />
-          </div>
-          
-          <h1 className="text-3xl font-bold mb-4 text-primary">
-            Welcome to the Mspaces Family! 🎉
-          </h1>
-          
-          <p className="text-lg text-muted-foreground mb-6">
-            Thank you for joining us, <span className="font-semibold text-foreground">{userName}</span>!
-          </p>
-          
-          <div className="bg-primary/5 border-2 border-primary/20 rounded-xl p-6 mb-6">
-            <Mail className="w-12 h-12 text-primary mx-auto mb-3" />
-            <h3 className="font-semibold text-lg mb-2">Check Your Email</h3>
-            <p className="text-sm text-muted-foreground mb-4">
-              We've sent a confirmation email to:
-            </p>
-            <p className="font-mono text-sm bg-white px-4 py-2 rounded-lg border">
-              {userEmail}
-            </p>
-            <p className="text-sm text-muted-foreground mt-4">
-              Please click the confirmation link in the email to activate your account.
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/10 via-background to-secondary/10 p-4">
+        <div className="w-full max-w-2xl bg-card rounded-2xl shadow-2xl overflow-hidden">
+          <div className="bg-gradient-to-r from-primary to-primary/80 p-8 text-center">
+            <div className="flex justify-center mb-4">
+              <div className="w-20 h-20 bg-white/20 rounded-full flex items-center justify-center backdrop-blur-sm">
+                <PartyPopper className="w-10 h-10 text-white" />
+              </div>
+            </div>
+            <h2 className="text-3xl font-bold text-white mb-2">
+              Welcome to Mspaces, {userName}! 🎉
+            </h2>
+            <p className="text-white/90 text-lg">
+              Your account has been created successfully
             </p>
           </div>
 
-          <div className="space-y-3">
-            <p className="text-sm text-muted-foreground">
-              Didn't receive the email? Check your spam folder.
-            </p>
-            
-            <Button
-              onClick={() => navigate("/signin", { replace: true, state: { fromSignup: true } })}
-              className="w-full h-12 bg-primary hover:bg-primary/90"
-            >
-              Go to Sign In
-            </Button>
+          <div className="p-8">
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-6">
+              <div className="flex items-start gap-3">
+                <Mail className="w-6 h-6 text-blue-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <h3 className="font-semibold text-blue-900 mb-2">
+                    Check your email to verify your account
+                  </h3>
+                  <p className="text-blue-700 text-sm mb-3">
+                    We've sent a confirmation email to <strong>{userEmail}</strong>
+                  </p>
+                  <p className="text-blue-600 text-sm">
+                    Click the link in the email to verify your account and get started. The link will expire in 24 hours.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-4 text-sm text-muted-foreground">
+              <p className="flex items-center gap-2">
+                <CheckCircle className="w-4 h-4 text-green-600" />
+                Check your spam folder if you don't see the email
+              </p>
+              <p className="flex items-center gap-2">
+                <CheckCircle className="w-4 h-4 text-green-600" />
+                Make sure to click the confirmation link within 24 hours
+              </p>
+              <p className="flex items-center gap-2">
+                <CheckCircle className="w-4 h-4 text-green-600" />
+                You'll be automatically signed in after confirmation
+              </p>
+            </div>
+
+            <div className="mt-8 text-center">
+              <Link to="/welcome">
+                <Button variant="outline" className="w-full sm:w-auto">
+                  Back to Welcome
+                </Button>
+              </Link>
+            </div>
           </div>
         </div>
       </div>
@@ -274,20 +298,15 @@ const SignUp = () => {
 
   return (
     <div className="min-h-screen flex flex-col lg:flex-row">
-      <div className="hidden lg:flex lg:w-1/2 bg-primary relative overflow-hidden">
-        {images.map((img, idx) => (
-          <div
-            key={idx}
-            className={`absolute inset-0 transition-opacity duration-1000 ${
-              idx === currentImageIndex ? "opacity-100" : "opacity-0"
-            }`}
-          >
-            <img src={img} alt="Service provider" className="w-full h-full object-cover" />
-            <div className="absolute inset-0 bg-primary/60" />
-          </div>
-        ))}
-        
-        <div className="absolute inset-0 flex flex-col items-center justify-center p-12 z-10">
+      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-primary via-primary/90 to-primary/80 relative overflow-hidden">
+        <div className="absolute inset-0">
+          <img
+            src={images[currentImageIndex]}
+            alt="Service professional"
+            className="w-full h-full object-cover opacity-20 transition-opacity duration-1000"
+          />
+        </div>
+        <div className="relative z-10 flex flex-col items-center justify-center p-12 text-center">
           <div className="text-center text-white">
             <h1 className="text-5xl font-bold mb-4">Join Mspaces</h1>
             <p className="text-xl text-white/90">
