@@ -1,4 +1,5 @@
-// src/pages/Home.tsx - CLIENT SITE with Supabase Auth
+// src/pages/Home.tsx - FIXED VERSION
+// The issue was checking auth before Supabase processed the URL hash tokens
 
 import { useState, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
@@ -91,8 +92,13 @@ const Home = () => {
 
   const loadUser = async () => {
     try {
+      // CRITICAL FIX: Wait for Supabase to process any hash tokens first
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
       const { data: { user } } = await supabase.auth.getUser();
+      
       if (!user) {
+        // Only redirect to signin if we're really not authenticated
         navigate("/signin");
         return;
       }
@@ -106,7 +112,13 @@ const Home = () => {
         .eq('clerk_user_id', user.id)
         .single();
 
-      if (profileError) throw profileError;
+      if (profileError) {
+        console.error("Profile error:", profileError);
+        // If profile doesn't exist yet, that's okay - show basic view
+        setLoading(false);
+        return;
+      }
+      
       setProfile(profileData);
 
       // Load customer profile (for location)
@@ -146,7 +158,6 @@ const Home = () => {
     if (loading) return "Loading...";
     if (!profile?.full_name) return "User";
     
-    // Get first name only
     const firstName = profile.full_name.split(' ')[0];
     return firstName;
   };
@@ -158,7 +169,6 @@ const Home = () => {
       return "Set your location";
     }
 
-    // Priority: formatted_address > city + province > address > "Set location"
     if (customerProfile.formatted_address) {
       return customerProfile.formatted_address;
     }
@@ -177,6 +187,18 @@ const Home = () => {
     
     return "Set your location";
   };
+
+  // Show loading state while checking auth
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/10 to-primary/5">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background pb-20">
@@ -220,12 +242,9 @@ const Home = () => {
           minHeight: '300px',
         }}
       >
-        {/* Glassmorphic Overlay */}
         <div className="absolute inset-0 bg-primary/50 backdrop-blur-[1px]"></div>
         
-        {/* Content */}
         <div className="relative z-10 px-4 sm:px-6 lg:px-8 pb-6 text-white max-w-7xl mx-auto">
-          {/* Greeting */}
           <div className="mb-4 pt-4">
             <h2 className="text-2xl sm:text-3xl font-bold mb-2 drop-shadow-lg">
               Hi {getDisplayName()} 👋
@@ -239,7 +258,6 @@ const Home = () => {
             </Link>
           </div>
 
-          {/* Quick Actions - Responsive Grid */}
           <div className="grid grid-cols-3 gap-2 sm:gap-3 max-w-2xl">
             {quickActions.map((action) => (
               <Button
@@ -270,7 +288,6 @@ const Home = () => {
             <Mic className="w-5 h-5" />
           </button>
 
-          {/* Search Dropdown */}
           {showSearchDropdown && searchResults.length > 0 && (
             <div className="absolute top-full mt-2 w-full bg-white rounded-xl shadow-2xl border border-border max-h-80 overflow-y-auto z-50">
               {searchResults.map((service) => (
