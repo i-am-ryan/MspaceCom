@@ -1,11 +1,12 @@
+// LOCATION: /src/pages/SignIn.tsx
 import { useState, useEffect } from "react";
-import { Link, useNavigate, useLocation } from "react-router-dom";
-import { ArrowLeft, Mail, Lock, Eye, EyeOff, AlertCircle } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { useSignIn } from "@clerk/clerk-react";
+import { ArrowLeft, Mail, Lock, Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/lib/supabase";
 import plumberImg from "@/assets/signup-plumber.jpg";
 import electricianImg from "@/assets/signup-electrician.jpg";
 import painterImg from "@/assets/signup-painter.jpg";
@@ -13,17 +14,15 @@ import handymanImg from "@/assets/signup-handyman.jpg";
 
 const SignIn = () => {
   const navigate = useNavigate();
-  const location = useLocation();
   const { toast } = useToast();
+  const { isLoaded, signIn, setActive } = useSignIn();
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [verifying, setVerifying] = useState(false);
   
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
-  const showVerificationNotice = location.state?.fromSignup === true;
   const images = [plumberImg, electricianImg, painterImg, handymanImg];
 
   useEffect(() => {
@@ -33,130 +32,21 @@ const SignIn = () => {
     return () => clearInterval(interval);
   }, []);
 
-  useEffect(() => {
-    const verifyEmailFromUrl = async () => {
-      const params = new URLSearchParams(window.location.search);
-      const token = params.get('token');
-      const pwd = params.get('pwd');
-      
-      if (token) {
-        setVerifying(true);
-        
-        try {
-          const { data: verification, error } = await supabase
-            .from('email_verifications')
-            .select('*')
-            .eq('token', token)
-            .single();
-
-          if (!error && verification) {
-            if (verification.verified) {
-              toast({
-                title: "Already verified",
-                description: "Your email is already verified. Please sign in.",
-              });
-              setVerifying(false);
-              return;
-            }
-
-            const expiresAt = new Date(verification.expires_at);
-            if (expiresAt < new Date()) {
-              toast({
-                variant: "destructive",
-                title: "Link expired",
-                description: "This verification link has expired. Please sign up again.",
-              });
-              setVerifying(false);
-              return;
-            }
-
-            await supabase
-              .from('email_verifications')
-              .update({ 
-                verified: true, 
-                verified_at: new Date().toISOString() 
-              })
-              .eq('token', token);
-
-            const { data: profile } = await supabase
-              .from('profiles')
-              .select('email')
-              .eq('clerk_user_id', verification.user_id)
-              .single();
-
-            if (profile?.email && pwd) {
-              const decodedPwd = decodeURIComponent(pwd);
-              const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-                email: profile.email,
-                password: decodedPwd,
-              });
-
-              if (!signInError && signInData.session) {
-                toast({
-                  title: "Email verified!",
-                  description: "Welcome to Mspaces!",
-                });
-                navigate("/home");
-                return;
-              }
-            }
-
-            toast({
-              title: "Email verified!",
-              description: "Please sign in below.",
-            });
-            
-            if (profile?.email) {
-              setEmail(profile.email);
-            }
-          }
-        } catch (err) {
-          console.error("Verification error:", err);
-          toast({
-            variant: "destructive",
-            title: "Verification failed",
-            description: "Failed to verify email. Please try again.",
-          });
-        } finally {
-          setVerifying(false);
-        }
-      }
-    };
-
-    verifyEmailFromUrl();
-  }, []);
-
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isLoaded) return;
+    
     setLoading(true);
 
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
+      const result = await signIn.create({
+        identifier: email,
         password,
       });
 
-      if (error) throw error;
-
-      if (data.user) {
-        const { data: verification } = await supabase
-          .from('email_verifications')
-          .select('verified')
-          .eq('user_id', data.user.id)
-          .single();
-
-        if (!verification || !verification.verified) {
-          await supabase.auth.signOut();
-          
-          toast({
-            variant: "destructive",
-            title: "Email not verified",
-            description: "Please check your email and verify your account before signing in.",
-          });
-          setLoading(false);
-          return;
-        }
-
+      if (result.status === "complete") {
+        await setActive({ session: result.createdSessionId });
+        
         toast({
           title: "Welcome back!",
           description: "You've successfully signed in.",
@@ -169,24 +59,12 @@ const SignIn = () => {
       toast({
         variant: "destructive",
         title: "Sign in failed",
-        description: error.message || "Please check your credentials and try again.",
+        description: error.errors?.[0]?.message || "Please check your credentials and try again.",
       });
     } finally {
       setLoading(false);
     }
   };
-
-  if (verifying) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center p-6">
-        <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 text-center">
-          <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <h2 className="text-2xl font-bold mb-2">Verifying your email...</h2>
-          <p className="text-muted-foreground">Please wait a moment.</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen flex flex-col lg:flex-row">
@@ -234,18 +112,6 @@ const SignIn = () => {
               </p>
             </div>
 
-            {showVerificationNotice && (
-              <div className="bg-primary/5 border border-primary/20 rounded-lg p-4 mb-6 flex items-start gap-3">
-                <AlertCircle className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
-                <div className="text-sm">
-                  <p className="font-medium text-foreground mb-1">Email Verification Required</p>
-                  <p className="text-muted-foreground">
-                    Please check your inbox and verify your email before signing in.
-                  </p>
-                </div>
-              </div>
-            )}
-
             <form onSubmit={handleSignIn} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>
@@ -284,6 +150,15 @@ const SignIn = () => {
                     {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                   </button>
                 </div>
+              </div>
+
+              <div className="flex items-center justify-end">
+                <Link
+                  to="/forgot-password"
+                  className="text-sm text-primary hover:underline"
+                >
+                  Forgot password?
+                </Link>
               </div>
 
               <Button

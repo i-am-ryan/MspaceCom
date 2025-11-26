@@ -1,7 +1,7 @@
-// src/pages/Profile.tsx - CLIENT SITE with Supabase Auth
-
+// LOCATION: /src/pages/Profile.tsx
 import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { useUser, useClerk } from "@clerk/clerk-react";
 import { ArrowLeft, MapPin, Phone, Mail, Edit2, Save, X, Home, Search, CalendarClock, MessageSquare, User as UserIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,8 +12,10 @@ import { supabase } from "@/lib/supabase";
 const Profile = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const [user, setUser] = useState<any>(null);
+  const { isLoaded, isSignedIn, user } = useUser();
+  const { signOut } = useClerk();
   const [profile, setProfile] = useState<any>(null);
+  const [customerProfile, setCustomerProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -26,54 +28,203 @@ const Profile = () => {
   const [postalCode, setPostalCode] = useState("");
 
   useEffect(() => {
-    loadUser();
-  }, []);
+    if (isLoaded && !isSignedIn) {
+      navigate("/signin");
+    } else if (isLoaded && isSignedIn && user) {
+      loadProfile();
+    }
+  }, [isLoaded, isSignedIn, user]);
 
-  const loadUser = async () => {
+  const loadProfile = async () => {
+    if (!user) return;
+
+    console.log("=== LOADING PROFILE ===");
+    console.log("Clerk user ID:", user.id);
+    console.log("Email:", user.primaryEmailAddress?.emailAddress);
+    console.log("Full name:", user.fullName);
+
     try {
-      // Get current user
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        navigate("/signin");
-        return;
-      }
-
-      setUser(user);
-
-      // Load profile
-      const { data: profileData, error: profileError } = await supabase
+      // Try to load profile with a direct query first (bypassing potential RLS)
+      console.log("Querying Supabase for profile...");
+      
+      // First attempt: Try with maybeSingle
+      let profileData = null;
+      let profileError = null;
+      
+      const query1 = await supabase
         .from('profiles')
         .select('*')
         .eq('clerk_user_id', user.id)
-        .single();
+        .maybeSingle();
+      
+      profileData = query1.data;
+      profileError = query1.error;
 
-      if (profileError) throw profileError;
+      console.log("Query result:", { profileData, profileError });
 
-      setProfile(profileData);
-      setFullName(profileData?.full_name || "");
-      setPhoneNumber(profileData?.phone_number || "");
-
-      // Load customer profile
-      if (profileData) {
-        const { data: customerData } = await supabase
-          .from('customer_profiles')
+      // If not found, try querying by email as fallback
+      if (!profileData && user.primaryEmailAddress?.emailAddress) {
+        console.log("Trying to find by email...");
+        const query2 = await supabase
+          .from('profiles')
           .select('*')
-          .eq('profile_id', profileData.id)
-          .single();
-
-        if (customerData) {
-          setAddress(customerData.formatted_address || customerData.address || "");
-          setCity(customerData.city || "");
-          setProvince(customerData.province || "");
-          setPostalCode(customerData.postal_code || "");
+          .eq('email', user.primaryEmailAddress.emailAddress)
+          .maybeSingle();
+        
+        if (query2.data) {
+          console.log("Found profile by email, updating clerk_user_id...");
+          // Update the clerk_user_id to match current user
+          const { data: updated } = await supabase
+            .from('profiles')
+            .update({ clerk_user_id: user.id })
+            .eq('id', query2.data.id)
+            .select()
+            .single();
+          
+          profileData = updated || query2.data;
         }
       }
-    } catch (error) {
+
+      if (profileError && profileError.code !== 'PGRST116') {
+        console.error("Profile query error:", profileError);
+        throw profileError;
+      }
+
+      if (!profileData) {
+        // Profile doesn't exist - create it
+        console.log("=== PROFILE NOT FOUND - CREATING NEW ===");
+        const newProfileData = {
+          clerk_user_id: user.id,
+          email: user.primaryEmailAddress?.emailAddress || '',
+          full_name: user.fullName || user.firstName || '',
+          phone_number: user.primaryPhoneNumber?.phoneNumber || null,
+          user_type: 'customer' as const,
+        };
+        
+        console.log("Inserting profile:", newProfileData);
+
+        const { data: newProfile, error: createError } = await supabase
+          .from('profiles')
+          .insert(newProfileData)
+          .select()
+          .single();
+
+        console.log("Insert result:", { newProfile, createError });
+
+        if (createError) {
+          console.error("=== CREATE ERROR DETAILS ===");
+          console.error("Full error object:", createError);
+          
+          // If duplicate key error, fetch the existing profile
+          if (createError.code === '23505' || createError.message?.includes('duplicate') || createError.message?.includes('unique')) {
+            console.log("Duplicate detected - fetching existing profile...");
+            
+            // Wait a bit for DB to settle
+            await new Promise(resolve => setTimeout(resolve, 500));
+            
+            const { data: existingProfile } = await supabase
+              .from('profiles')
+              .select('*')
+              .eq('clerk_user_id', user.id)
+              .single();
+            
+            if (existingProfile) {
+              console.log("Found existing profile after conflict:", existingProfile);
+              profileData = existingProfile;
+            } else {
+              // Try by email
+              const { data: byEmail } = await supabase
+                .from('profiles')
+                .select('*')
+                .eq('email', user.primaryEmailAddress?.emailAddress || '')
+                .single();
+              
+              if (byEmail) {
+                console.log("Found by email:", byEmail);
+                profileData = byEmail;
+              } else {
+                throw new Error("Profile exists but cannot be retrieved. Please contact support.");
+              }
+            }
+          } else {
+            throw createError;
+          }
+        } else {
+          profileData = newProfile;
+        }
+
+        // If we still don't have profile data, something is wrong
+        if (!profileData) {
+          throw new Error("Failed to create or retrieve profile");
+        }
+
+        console.log("Using profile:", profileData);
+        setProfile(profileData);
+        setFullName(profileData.full_name || "");
+        setPhoneNumber(profileData.phone_number || "");
+
+        // Create empty customer profile
+        const { error: customerCreateError } = await supabase
+          .from('customer_profiles')
+          .insert({
+            profile_id: profileData.id,
+          });
+
+        if (customerCreateError && customerCreateError.code !== '23505') {
+          console.error("Error creating customer profile:", customerCreateError);
+        }
+
+        setLoading(false);
+        return;
+      }
+
+      // Profile exists, load it
+      console.log("=== PROFILE FOUND ===");
+      console.log("Profile data:", profileData);
+      setProfile(profileData);
+      setFullName(profileData.full_name || "");
+      setPhoneNumber(profileData.phone_number || "");
+
+      // Load customer profile
+      const { data: customerData, error: customerError } = await supabase
+        .from('customer_profiles')
+        .select('*')
+        .eq('profile_id', profileData.id)
+        .maybeSingle();
+
+      if (customerError && customerError.code !== 'PGRST116') {
+        console.error("Customer profile query error:", customerError);
+      }
+
+      console.log("Customer profile data:", customerData);
+
+      if (customerData) {
+        setCustomerProfile(customerData);
+        setAddress(customerData.formatted_address || customerData.address || "");
+        setCity(customerData.city || "");
+        setProvince(customerData.province || "");
+        setPostalCode(customerData.postal_code || "");
+      } else {
+        // Create customer profile if it doesn't exist
+        console.log("Creating customer profile for profile_id:", profileData.id);
+        const { error: createCustomerError } = await supabase
+          .from('customer_profiles')
+          .insert({
+            profile_id: profileData.id,
+          });
+        
+        if (createCustomerError && createCustomerError.code !== '23505') {
+          console.error("Error creating customer profile:", createCustomerError);
+        }
+      }
+
+    } catch (error: any) {
+      console.error("=== FATAL ERROR ===");
       console.error("Error loading profile:", error);
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Failed to load profile data.",
+        description: error.message || "Failed to load profile data. Check console for details.",
       });
     } finally {
       setLoading(false);
@@ -83,32 +234,66 @@ const Profile = () => {
   const handleSave = async () => {
     setSaving(true);
     try {
-      if (!profile?.id || !user) return;
+      if (!profile?.id || !user) {
+        throw new Error("Profile not loaded");
+      }
 
-      // Update main profile
-      const { error: profileError } = await supabase
+      // Update main profile - use profile.id instead of clerk_user_id
+      const { data: updatedProfile, error: profileError } = await supabase
         .from('profiles')
         .update({
-          full_name: fullName,
-          phone_number: phoneNumber,
+          full_name: fullName.trim(),
+          phone_number: phoneNumber.trim() || null,
+          updated_at: new Date().toISOString(),
         })
-        .eq('clerk_user_id', user.id);
+        .eq('id', profile.id)
+        .select()
+        .single();
 
-      if (profileError) throw profileError;
+      if (profileError) {
+        console.error("Profile update error:", profileError);
+        throw new Error(profileError.message || "Failed to update profile");
+      }
 
-      // Update customer profile
-      const { error: customerError } = await supabase
-        .from('customer_profiles')
-        .update({
-          formatted_address: address.trim() || null,
-          address: address.trim() || null,
-          city: city.trim() || null,
-          province: province.trim() || null,
-          postal_code: postalCode.trim() || null,
-        })
-        .eq('profile_id', profile.id);
+      // Update customer profile - check if exists first
+      if (customerProfile?.id) {
+        // Update existing customer profile
+        const { error: customerError } = await supabase
+          .from('customer_profiles')
+          .update({
+            formatted_address: address.trim() || null,
+            address: address.trim() || null,
+            city: city.trim() || null,
+            province: province.trim() || null,
+            postal_code: postalCode.trim() || null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', customerProfile.id);
 
-      if (customerError) throw customerError;
+        if (customerError) {
+          console.error("Customer profile update error:", customerError);
+          throw new Error(customerError.message || "Failed to update location");
+        }
+      } else {
+        // Create new customer profile
+        const { error: customerError } = await supabase
+          .from('customer_profiles')
+          .insert({
+            profile_id: profile.id,
+            formatted_address: address.trim() || null,
+            address: address.trim() || null,
+            city: city.trim() || null,
+            province: province.trim() || null,
+            postal_code: postalCode.trim() || null,
+          })
+          .select()
+          .single();
+
+        if (customerError) {
+          console.error("Customer profile creation error:", customerError);
+          throw new Error(customerError.message || "Failed to create customer profile");
+        }
+      }
 
       setEditing(false);
       toast({
@@ -116,8 +301,8 @@ const Profile = () => {
         description: "Your profile has been updated.",
       });
 
-      // Reload profile
-      await loadUser();
+      // Reload profile to get fresh data
+      await loadProfile();
     } catch (error: any) {
       console.error("Error saving profile:", error);
       toast({
@@ -133,17 +318,22 @@ const Profile = () => {
   const handleCancel = () => {
     setFullName(profile?.full_name || "");
     setPhoneNumber(profile?.phone_number || "");
+    setAddress(customerProfile?.formatted_address || customerProfile?.address || "");
+    setCity(customerProfile?.city || "");
+    setProvince(customerProfile?.province || "");
+    setPostalCode(customerProfile?.postal_code || "");
     setEditing(false);
   };
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
+    await signOut();
     navigate("/welcome");
   };
 
   const getInitials = () => {
-    if (!profile?.full_name) return "U";
-    return profile.full_name
+    if (!user?.fullName && !profile?.full_name) return "U";
+    const name = user?.fullName || profile?.full_name || "";
+    return name
       .split(" ")
       .map((n: string) => n[0])
       .join("")
@@ -151,7 +341,7 @@ const Profile = () => {
       .slice(0, 2);
   };
 
-  if (loading) {
+  if (!isLoaded || loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center">
@@ -207,7 +397,7 @@ const Profile = () => {
           <div className="w-24 h-24 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-3xl font-bold mb-4">
             {getInitials()}
           </div>
-          <p className="text-sm text-muted-foreground">{user?.email}</p>
+          <p className="text-sm text-muted-foreground">{user?.primaryEmailAddress?.emailAddress}</p>
         </div>
 
         <div className="space-y-4">
@@ -230,7 +420,7 @@ const Profile = () => {
               <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
               <Input
                 id="email"
-                value={user?.email || ""}
+                value={user?.primaryEmailAddress?.emailAddress || ""}
                 disabled
                 className="h-12 pl-10 bg-muted"
               />

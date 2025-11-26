@@ -1,8 +1,7 @@
-// src/pages/Home.tsx - FIXED VERSION
-// The issue was checking auth before Supabase processed the URL hash tokens
-
+// LOCATION: /src/pages/Home.tsx
 import { useState, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useUser } from "@clerk/clerk-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -19,6 +18,7 @@ import {
   User,
   CalendarClock,
   ArrowRight,
+  AlertCircle,
 } from "lucide-react";
 import { searchServices } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
@@ -62,7 +62,7 @@ const quickActions = [
 const Home = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const [user, setUser] = useState<any>(null);
+  const { isLoaded, isSignedIn, user } = useUser();
   const [profile, setProfile] = useState<any>(null);
   const [customerProfile, setCustomerProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -71,16 +71,15 @@ const Home = () => {
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
   const [hasUnreadNotifications, setHasUnreadNotifications] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
+  const [showLocationBanner, setShowLocationBanner] = useState(false);
 
   useEffect(() => {
-    loadUser();
-  }, []);
-
-  useEffect(() => {
-    if (location.pathname === '/home') {
-      loadUser();
+    if (isLoaded && !isSignedIn) {
+      navigate("/signin");
+    } else if (isLoaded && isSignedIn && user) {
+      loadUserProfile();
     }
-  }, [location.pathname]);
+  }, [isLoaded, isSignedIn, user]);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -90,49 +89,89 @@ const Home = () => {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  const loadUser = async () => {
+  const loadUserProfile = async () => {
+    if (!user) return;
+    
     try {
-      // CRITICAL FIX: Wait for Supabase to process any hash tokens first
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      if (!user) {
-        // Only redirect to signin if we're really not authenticated
-        navigate("/signin");
-        return;
-      }
-
-      setUser(user);
-
-      // Load profile
+      // Load profile from Supabase using Clerk user ID
       const { data: profileData, error: profileError } = await supabase
         .from('profiles')
         .select('*')
         .eq('clerk_user_id', user.id)
-        .single();
+        .maybeSingle();
 
-      if (profileError) {
+      if (profileError && profileError.code !== 'PGRST116') {
         console.error("Profile error:", profileError);
-        // If profile doesn't exist yet, that's okay - show basic view
-        setLoading(false);
-        return;
+        throw profileError;
       }
       
-      setProfile(profileData);
+      if (!profileData) {
+        // Create profile if it doesn't exist
+        console.log("Creating new profile for user:", user.id);
+        const { data: newProfile, error: createError } = await supabase
+          .from('profiles')
+          .insert({
+            clerk_user_id: user.id,
+            email: user.primaryEmailAddress?.emailAddress || '',
+            full_name: user.fullName || user.firstName || '',
+            phone_number: user.primaryPhoneNumber?.phoneNumber || null,
+            user_type: 'customer',
+          })
+          .select()
+          .single();
 
-      // Load customer profile (for location)
-      if (profileData) {
-        const { data: customerData } = await supabase
+        if (createError) {
+          console.error("Error creating profile:", createError);
+          throw createError;
+        }
+
+        setProfile(newProfile);
+
+        if (newProfile) {
+          // Create empty customer profile
+          const { error: customerCreateError } = await supabase
+            .from('customer_profiles')
+            .insert({
+              profile_id: newProfile.id,
+            });
+          
+          if (customerCreateError && customerCreateError.code !== '23505') {
+            console.error("Error creating customer profile:", customerCreateError);
+          }
+          
+          setShowLocationBanner(true);
+        }
+      } else {
+        setProfile(profileData);
+
+        // Load customer profile
+        const { data: customerData, error: customerError } = await supabase
           .from('customer_profiles')
           .select('*')
           .eq('profile_id', profileData.id)
-          .single();
+          .maybeSingle();
 
-        setCustomerProfile(customerData);
+        if (customerError && customerError.code !== 'PGRST116') {
+          console.error("Customer profile error:", customerError);
+        }
+
+        if (customerData) {
+          setCustomerProfile(customerData);
+          
+          // Show location banner if no city is set
+          if (!customerData.city) {
+            setShowLocationBanner(true);
+          }
+        } else {
+          // Create customer profile if it doesn't exist
+          await supabase.from('customer_profiles').insert({
+            profile_id: profileData.id,
+          });
+          setShowLocationBanner(true);
+        }
       }
     } catch (error) {
-      console.error("Error loading user:", error);
+      console.error("Error loading profile:", error);
     } finally {
       setLoading(false);
     }
@@ -156,10 +195,12 @@ const Home = () => {
 
   const getDisplayName = () => {
     if (loading) return "Loading...";
-    if (!profile?.full_name) return "User";
-    
-    const firstName = profile.full_name.split(' ')[0];
-    return firstName;
+    if (profile?.full_name) {
+      const firstName = profile.full_name.split(' ')[0];
+      return firstName;
+    }
+    if (user?.firstName) return user.firstName;
+    return "User";
   };
 
   const getDisplayLocation = () => {
@@ -188,8 +229,7 @@ const Home = () => {
     return "Set your location";
   };
 
-  // Show loading state while checking auth
-  if (loading) {
+  if (!isLoaded || loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/10 to-primary/5">
         <div className="text-center">
@@ -202,8 +242,41 @@ const Home = () => {
 
   return (
     <div className="min-h-screen bg-background pb-20">
+      {/* Location Banner - Shows when no location is set */}
+      {showLocationBanner && (
+        <div className="bg-orange-50 border-b border-orange-200 sticky top-0 z-50">
+          <div className="max-w-7xl mx-auto px-4 py-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3 flex-1">
+                <AlertCircle className="w-5 h-5 text-orange-600 flex-shrink-0" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-orange-900">
+                    Set your location to find nearby service providers
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  onClick={() => navigate('/profile')}
+                  className="bg-orange-600 hover:bg-orange-700 text-white"
+                >
+                  Add Location
+                </Button>
+                <button
+                  onClick={() => setShowLocationBanner(false)}
+                  className="text-orange-600 hover:text-orange-800 p-1"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
-      <header className={`sticky top-0 z-50 transition-all duration-300 ${
+      <header className={`sticky ${showLocationBanner ? 'top-[52px]' : 'top-0'} z-40 transition-all duration-300 ${
         isScrolled 
           ? 'bg-card/95 backdrop-blur-md border-b border-border shadow-sm' 
           : 'bg-transparent'
@@ -233,7 +306,7 @@ const Home = () => {
         </div>
       </header>
 
-      {/* Hero Section with Background */}
+      {/* Hero Section */}
       <section 
         className="relative bg-cover bg-center bg-no-repeat -mt-[73px] pt-[73px]"
         style={{ 
@@ -255,6 +328,9 @@ const Home = () => {
             >
               <MapPin className="w-4 h-4 flex-shrink-0" />
               <span className="text-sm font-medium">{getDisplayLocation()}</span>
+              {!customerProfile?.city && (
+                <span className="text-xs bg-white/20 px-2 py-0.5 rounded-full">Click to add</span>
+              )}
             </Link>
           </div>
 

@@ -1,5 +1,4 @@
-// src/lib/supabase.ts - Replace your current file with this
-
+// LOCATION: /src/lib/supabase.ts
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -9,13 +8,22 @@ if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error('Missing Supabase environment variables');
 }
 
-// Simple Supabase client - no Clerk integration
+// Client for public operations (with RLS)
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+// For admin operations - bypasses RLS
+// NOTE: In production, these operations should go through your backend API
+export const supabaseAdmin = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    autoRefreshToken: false,
+    persistSession: false
+  }
+});
 
 // Types
 export type Profile = {
   id: string;
-  clerk_user_id: string; // Will store Supabase user ID now
+  clerk_user_id: string;
   email: string;
   full_name: string;
   phone_number: string | null;
